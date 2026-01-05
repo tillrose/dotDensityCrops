@@ -1,11 +1,7 @@
----
-title: "Dot density plot for wheat, rye and barley cropping area in Germany"
-format: gfm
-editor: visual
----
+# Dot density plot for wheat, rye and barley cropping area in Germany
 
-```{r setup, warning=FALSE, message=FALSE}
 
+``` r
 library(tidyverse)
 library(wiesbaden)
 library(sf)
@@ -30,12 +26,9 @@ plot_knit <- function(plot, fixed_height = FALSE, scaling = 1, width = 21, aspec
   knitr::include_graphics(pngfile) 
   
 }
-
-
 ```
 
-```{r import, warning=FALSE, message=FALSE}
-
+``` r
 area_dat <- read_delim("data/41141-02-02-4_flat.csv", locale = locale(encoding = "latin1"), delim = ";")
 
 
@@ -46,11 +39,9 @@ kreis_shape <- read_sf("data/EPSG_25832/VG250_KRS.shp") |>
   dplyr::select(Kreis_code)
 
 bundesland_shape <- read_sf("data/EPSG_25832/VG250_LAN.shp")
-
 ```
 
-```{r tidy, warning=FALSE, message=FALSE}
-
+``` r
 wheat_dat <- area_dat  |> 
   filter(time == 2020,
          `2_variable_attribute_label` == "Winterweizen (einschließlich Dinkel und Einkorn)",
@@ -85,13 +76,9 @@ rye_dat <- area_dat  |>
 
 bundesland_shape <- bundesland_shape |> 
   filter(! OBJID %in% c("DEBKGVG200000CKJ", "DEBKGVG200000CKK", "DEBKGVG200000CKL",  "DEBKGVG200000CKH", "DEBKGVG200000CKI", "DEBKGVG200000CKG", "DEBKGVG200000CKF", "DEBKGVG200000CKE"))
-
-
 ```
 
-```{r transform, warning=FALSE, message=FALSE}
-
-
+``` r
 kreis_shape <- st_transform(kreis_shape, 25832) # Make sure geometry is in a projected CRS with meters (important for sampling)
 dot_multiplier <- 0.001  # 1 dot represents 1000 ha (pick what looks right)
 
@@ -146,14 +133,9 @@ illu_dots <- illu_dots |>
   st_set_crs(value = st_crs(kreis_shape))
 
 illu_dots <- illu_dots[sample(nrow(illu_dots)), ]  # Shuffle rows to avoid clustering by crop type
-
-
 ```
 
-
-
-```{r Plot_Faceted, warning=FALSE, message=FALSE}
-
+``` r
 illu_dots <- illu_dots |> 
   mutate(crop = fct_relevel(crop, "Rye", "Barley", "Wheat"))
 
@@ -179,14 +161,9 @@ plot_1 <- ggplot() +
   NULL
 
 # plot_knit(plot_1)
-
-
-
-
 ```
 
-```{r Plot_Single, warning=FALSE, message=FALSE}
-
+``` r
 illu_dots <- illu_dots |> 
   mutate(crop = fct_relevel(crop, "Rye", "Barley", "Wheat"))
 
@@ -211,15 +188,9 @@ plot_2 <- ggplot() +
   NULL
 
 # plot_knit(plot_2)
-
-
-
-
 ```
 
-
-```{r Plot_combined, warning=FALSE, message=FALSE}
-
+``` r
 plot_ <- plot_1 + plot_2 +
   plot_layout(widths = c(0.5, 1))+ plot_annotation(
   title = "Cropping Area",
@@ -231,16 +202,6 @@ plot_ <- plot_1 + plot_2 +
 
 
 plot_knit(plot_, aspect = 1)
-
 ```
 
-
-
-
-
-
-
-
-
-
-
+![](dotDensityCrops_files/figure-commonmark/Plot_combined-1.png)
