@@ -1,0 +1,246 @@
+---
+title: "Dot density plot for wheat, rye and barley cropping area in Germany"
+format: html
+editor: visual
+---
+
+```{r setup}
+
+library(tidyverse)
+library(wiesbaden)
+library(sf)
+library(ragg)
+library(patchwork)
+
+
+plot_knit <- function(plot, fixed_height = FALSE, scaling = 1, width = 21, aspect = 0.618, units = "cm", res = 300, bg = "transparent") {
+  pngfile <- paste0(knitr::fig_path(), ".png")
+  height <- width*aspect
+  if (fixed_height) {
+    if (aspect > 0.618)
+    {trim <- height/(21*0.618)
+     width <- width/trim;
+     height <- height/trim;
+    }
+  }
+  
+  agg_png(pngfile, width = width, height = height, units = units, res = res, bg = bg, scaling = scaling)
+  plot(plot)
+  invisible(dev.off())
+  knitr::include_graphics(pngfile) 
+  
+}
+
+
+```
+
+```{r import}
+
+area_dat <- read_delim("data/41141-02-02-4_flat.csv", locale = locale(encoding = "latin1"), delim = ";")
+
+
+# Shapes can be found here and must be downloaded manually: https://daten.gdz.bkg.bund.de/produkte/vg/vg1000_ebenen_1231/aktuell/vg1000_12-31.utm32s.shape.ebenen.zip
+
+kreis_shape <- read_sf("data/EPSG_25832/VG250_KRS.shp") |> 
+  rename("Kreis_code" = ARS) |> 
+  dplyr::select(Kreis_code)
+
+bundesland_shape <- read_sf("data/EPSG_25832/VG250_LAN.shp")
+
+```
+
+```{r tidy}
+
+wheat_dat <- area_dat  |> 
+  filter(time == 2020,
+         `2_variable_attribute_label` == "Winterweizen (einschließlich Dinkel und Einkorn)",
+         value_variable_label == "Fläche",
+         `1_variable_label` == "Kreise und kreisfreie Städte") |> 
+  dplyr::select("Kreis" = `1_variable_attribute_label`,
+                "Kreis_code" = `1_variable_attribute_code`,
+                "Fläche_ha" = value) |> 
+  mutate(Fläche_ha = as.integer(Fläche_ha))
+
+barley_dat <- area_dat  |> 
+  filter(time == 2020,
+         `2_variable_attribute_label` == "Gerste",
+         value_variable_label == "Fläche",
+         `1_variable_label` == "Kreise und kreisfreie Städte") |> 
+  dplyr::select("Kreis" = `1_variable_attribute_label`,
+                "Kreis_code" = `1_variable_attribute_code`,
+                "Fläche_ha" = value) |> 
+  mutate(Fläche_ha = as.integer(Fläche_ha))
+
+rye_dat <- area_dat  |> 
+  filter(time == 2020,
+         `2_variable_attribute_label` == "Roggen und Wintermenggetreide",
+         value_variable_label == "Fläche",
+         `1_variable_label` == "Kreise und kreisfreie Städte") |> 
+  dplyr::select("Kreis" = `1_variable_attribute_label`,
+                "Kreis_code" = `1_variable_attribute_code`,
+                "Fläche_ha" = value) |> 
+  mutate(Fläche_ha = as.integer(Fläche_ha))
+
+
+
+bundesland_shape <- bundesland_shape |> 
+  filter(! OBJID %in% c("DEBKGVG200000CKJ", "DEBKGVG200000CKK", "DEBKGVG200000CKL",  "DEBKGVG200000CKH", "DEBKGVG200000CKI", "DEBKGVG200000CKG", "DEBKGVG200000CKF", "DEBKGVG200000CKE"))
+
+
+```
+
+```{r transform}
+
+
+kreis_shape <- st_transform(kreis_shape, 25832) # Make sure geometry is in a projected CRS with meters (important for sampling)
+dot_multiplier <- 0.001  # 1 dot represents 1000 ha (pick what looks right)
+
+kreis_shape_buffered <- kreis_shape |> 
+  st_buffer(3000)
+
+wheat_dat <- kreis_shape_buffered |> 
+  left_join(wheat_dat) |> 
+  mutate(n_dots = round(Fläche_ha * dot_multiplier))  |> 
+  filter(n_dots > 0) |> 
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "random", exact = TRUE)),
+         )  |> 
+  select(Kreis_code, pts)  |>
+  `st_geometry<-`(NULL) |> 
+  unnest(pts) |> 
+  st_as_sf() |> 
+  st_geometry(value = pts) |> 
+  st_as_sf() |> 
+  mutate(crop = "Wheat")
+
+barley_dat <- kreis_shape_buffered |> 
+  left_join(barley_dat) |> 
+  mutate(n_dots = round(Fläche_ha * dot_multiplier))  |> 
+  filter(Fläche_ha > 0) |> 
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "random", exact = TRUE)),
+         )  |> 
+  select(Kreis_code, pts)  |>
+  `st_geometry<-`(NULL) |> 
+  unnest(pts) |> 
+  st_as_sf() |> 
+  st_geometry(value = pts) |> 
+  st_as_sf() |> 
+  mutate(crop = "Barley")
+
+rye_dat <- kreis_shape_buffered |> 
+  left_join(rye_dat) |> 
+  mutate(n_dots = round(Fläche_ha * dot_multiplier))  |> 
+  filter(Fläche_ha > 0) |> 
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "random", exact = TRUE)),
+         )  |> 
+  select(Kreis_code, pts)  |>
+  `st_geometry<-`(NULL) |> 
+  unnest(pts) |> 
+  st_as_sf() |> 
+  st_geometry(value = pts) |>
+  st_as_sf() |> 
+  mutate(crop = "Rye")
+
+
+illu_dots <- bind_rows(wheat_dat, barley_dat, rye_dat)
+illu_dots <- illu_dots |> 
+  st_set_crs(value = st_crs(kreis_shape))
+
+illu_dots <- illu_dots[sample(nrow(illu_dots)), ]  # Shuffle rows to avoid clustering by crop type
+
+
+```
+
+
+
+```{r Plot_Faceted}
+
+illu_dots <- illu_dots |> 
+  mutate(crop = fct_relevel(crop, "Rye", "Barley", "Wheat"))
+
+plot_1 <- ggplot() +
+  # ggtitle("Cropping Area", subtitle = "Every dot represents 1000 ha") +
+  theme_void(base_size = 14) +
+  theme(legend.position = c(-0.05, 1.03),
+        legend.justification = c(0, 1),
+        legend.key.spacing.y = unit(0, "lines"),
+        legend.key.height = unit(0.8, "lines"),
+          panel.background = element_rect(fill = "white", color = NA),
+  plot.background  = element_rect(fill = "white", color = NA)) +
+  facet_wrap(~crop, ncol = 1) +
+  ggfx::with_shadow(geom_sf(data = bundesland_shape, fill = "oldlace", colour = "white", linewidth = 0), colour = "grey80") +
+  geom_sf(data = illu_dots, shape = 21, stroke = 0.4, size = 0.8, aes(fill = crop), colour = "oldlace", alpha = 1) +
+  geom_sf(data = bundesland_shape, fill = NA, colour = "black", linewidth = 0.13) +
+  coord_sf() +
+  labs(fill = "",
+       # caption = "Data source: Statistische Ämter des Bundes und der Länder"
+       ) +
+  scale_fill_brewer(palette = "Set2") +
+  guides(fill = FALSE) +
+  NULL
+
+plot_knit(plot_1)
+
+
+
+
+```
+
+```{r Plot_Single}
+
+illu_dots <- illu_dots |> 
+  mutate(crop = fct_relevel(crop, "Rye", "Barley", "Wheat"))
+
+plot_2 <- ggplot() +
+  # ggtitle("Cropping Area", subtitle = "Every dot represents 1000 ha") +
+  theme_void(base_size = 14) +
+  theme(legend.position = c(0.06, 0.95),
+        legend.justification = c(0, 1),
+        legend.key.spacing.y = unit(0, "lines"),
+        legend.key.height = unit(0.8, "lines"),
+          panel.background = element_rect(fill = "white", color = NA),
+  plot.background  = element_rect(fill = "white", color = NA)) +
+  ggfx::with_shadow(geom_sf(data = bundesland_shape, fill = "oldlace", colour = "white", linewidth = 0), colour = "grey80") +
+  geom_sf(data = illu_dots, shape = 21, stroke = 0.4, size = 1.5, aes(fill = crop), colour = "oldlace", alpha = 1) +
+  geom_sf(data = bundesland_shape, fill = NA, colour = "black", linewidth = 0.13) +
+  coord_sf() +
+  labs(fill = "",
+       # caption = "Data source: Statistische Ämter des Bundes und der Länder"
+       ) +
+  scale_fill_brewer(palette = "Set2") +
+  guides(fill = guide_legend(override.aes = list(size = 2.5, stroke = 0))) +
+  NULL
+
+plot_knit(plot_2)
+
+
+
+
+```
+
+
+```{r Plot_combined}
+
+plot_ <- plot_1 + plot_2 +
+  plot_layout(widths = c(0.5, 1))+ plot_annotation(
+  title = "Cropping Area",
+  subtitle = "Every dot represents 1000 ha",
+  caption = "Data source: Statistische Ämter des Bundes und der Länder.
+  Shapes source: ©BKG (2026) dl-de/by-2-0.
+  Regional distribution is based on statistics on Kreis level."
+)
+
+
+plot_knit(plot_, aspect = 1)
+
+```
+
+
+
+
+
+
+
+
+
+
+
