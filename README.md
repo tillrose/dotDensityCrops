@@ -89,7 +89,7 @@ wheat_dat <- kreis_shape_buffered |>
   left_join(wheat_dat) |> 
   mutate(n_dots = round(Fläche_ha * dot_multiplier))  |> 
   filter(n_dots > 0) |> 
-  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "random", exact = TRUE)),
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "regular", exact = TRUE)),
          )  |> 
   select(Kreis_code, pts)  |>
   `st_geometry<-`(NULL) |> 
@@ -103,7 +103,7 @@ barley_dat <- kreis_shape_buffered |>
   left_join(barley_dat) |> 
   mutate(n_dots = round(Fläche_ha * dot_multiplier))  |> 
   filter(Fläche_ha > 0) |> 
-  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "random", exact = TRUE)),
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "regular", exact = TRUE)),
          )  |> 
   select(Kreis_code, pts)  |>
   `st_geometry<-`(NULL) |> 
@@ -117,7 +117,7 @@ rye_dat <- kreis_shape_buffered |>
   left_join(rye_dat) |> 
   mutate(n_dots = round(Fläche_ha * dot_multiplier))  |> 
   filter(Fläche_ha > 0) |> 
-  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "random", exact = TRUE)),
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "regular", exact = TRUE)),
          )  |> 
   select(Kreis_code, pts)  |>
   `st_geometry<-`(NULL) |> 
@@ -150,8 +150,8 @@ plot_1 <- ggplot() +
   plot.background  = element_rect(fill = "white", color = NA)) +
   facet_wrap(~crop, ncol = 1) +
   ggfx::with_shadow(geom_sf(data = bundesland_shape, fill = "oldlace", colour = "white", linewidth = 0), colour = "grey80") +
-  geom_sf(data = illu_dots, shape = 21, stroke = 0.4, size = 0.8, aes(fill = crop), colour = "oldlace", alpha = 1) +
-  geom_sf(data = bundesland_shape, fill = NA, colour = "black", linewidth = 0.13) +
+  geom_sf(data = illu_dots, shape = 21, stroke = 0.4, size = 0.75, aes(fill = crop), colour = "oldlace", alpha = 1) +
+  geom_sf(data = bundesland_shape, fill = NA, colour = "black", linewidth = 0.11) +
   coord_sf() +
   labs(fill = "",
        # caption = "Data source: Statistische Ämter des Bundes und der Länder"
@@ -177,7 +177,7 @@ plot_2 <- ggplot() +
           panel.background = element_rect(fill = "white", color = NA),
   plot.background  = element_rect(fill = "white", color = NA)) +
   ggfx::with_shadow(geom_sf(data = bundesland_shape, fill = "oldlace", colour = "white", linewidth = 0), colour = "grey80") +
-  geom_sf(data = illu_dots, shape = 21, stroke = 0.4, size = 1.5, aes(fill = crop), colour = "oldlace", alpha = 1) +
+  geom_sf(data = illu_dots, shape = 21, stroke = 0.4, size = 1.6, aes(fill = crop), colour = "oldlace", alpha = 1) +
   geom_sf(data = bundesland_shape, fill = NA, colour = "black", linewidth = 0.13) +
   coord_sf() +
   labs(fill = "",
@@ -195,7 +195,7 @@ plot_ <- plot_1 + plot_2 +
   plot_layout(widths = c(0.5, 1))+ plot_annotation(
   title = "Cropping Area",
   subtitle = "Every dot represents 1000 ha",
-  caption = "Data source: Statistische Ämter des Bundes und der Länder.
+  caption = "Data source: Statistische Ämter des Bundes und der Länder (2020).
   Shapes source: ©BKG (2026) dl-de/by-2-0.
   Regional distribution is based on statistics on Kreis level."
 )
