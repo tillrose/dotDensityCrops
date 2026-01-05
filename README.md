@@ -204,4 +204,4 @@ plot_ <- plot_1 + plot_2 +
 plot_knit(plot_, aspect = 1)
 ```
 
-![](dotDensityCrops_files/figure-commonmark/Plot_combined-1.png)
+![](README_files/figure-commonmark/Plot_combined-1.png)
