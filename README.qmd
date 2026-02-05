@@ -1,7 +1,7 @@
 ---
 title: "Dot density plot for wheat, rye and barley cropping area in Germany"
 format: gfm
-editor: visual
+editor: source
 ---
 
 ```{r setup, warning=FALSE, message=FALSE}
@@ -11,6 +11,13 @@ library(wiesbaden)
 library(sf)
 library(ragg)
 library(patchwork)
+library(FAOSTAT)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggthemes)
+library(viridis)
+library(paletteer)
+
 
 
 plot_knit <- function(plot, fixed_height = FALSE, scaling = 1, width = 21, aspect = 0.618, units = "cm", res = 300, bg = "transparent") {
@@ -46,6 +53,7 @@ kreis_shape <- read_sf("data/EPSG_25832/VG250_KRS.shp") |>
   dplyr::select(Kreis_code)
 
 bundesland_shape <- read_sf("data/EPSG_25832/VG250_LAN.shp")
+
 
 ```
 
@@ -150,8 +158,6 @@ illu_dots <- illu_dots[sample(nrow(illu_dots)), ]  # Shuffle rows to avoid clust
 
 ```
 
-
-
 ```{r Plot_Faceted, warning=FALSE, message=FALSE}
 
 illu_dots <- illu_dots |> 
@@ -217,7 +223,6 @@ plot_2 <- ggplot() +
 
 ```
 
-
 ```{r Plot_combined, warning=FALSE, message=FALSE}
 
 plot_ <- plot_1 + plot_2 +
@@ -233,14 +238,4 @@ plot_ <- plot_1 + plot_2 +
 plot_knit(plot_, aspect = 1)
 
 ```
-
-
-
-
-
-
-
-
-
-
 

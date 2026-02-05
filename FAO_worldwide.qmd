@@ -1,0 +1,275 @@
+---
+title: "Dot density plot for worldwide FAO data"
+format: gfm
+editor: source
+---
+
+```{r setup, warning=FALSE, message=FALSE}
+
+library(tidyverse)
+library(wiesbaden)
+library(sf)
+library(ragg)
+library(patchwork)
+library(FAOSTAT)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggthemes)
+library(viridis)
+library(paletteer)
+library(terra)
+library(geodata)
+
+
+
+plot_knit <- function(plot, fixed_height = FALSE, scaling = 1, width = 21, aspect = 0.618, units = "cm", res = 300, bg = "transparent") {
+  pngfile <- paste0(knitr::fig_path(), ".png")
+  height <- width*aspect
+  if (fixed_height) {
+    if (aspect > 0.618)
+    {trim <- height/(21*0.618)
+     width <- width/trim;
+     height <- height/trim;
+    }
+  }
+  
+  agg_png(pngfile, width = width, height = height, units = units, res = res, bg = bg, scaling = scaling)
+  plot(plot)
+  invisible(dev.off())
+  knitr::include_graphics(pngfile) 
+  
+}
+
+
+```
+
+```{r import, warning=FALSE, message=FALSE}
+
+crop_production <- get_faostat_bulk(code = "QCL", data_folder = "data/FAO")
+
+```
+
+```{r tidy, warning=FALSE, message=FALSE}
+
+country_lookup <- read_delim("UNSD — Methodology.csv") |> 
+  dplyr::select("area_code__m49_" = `M49 Code`, "iso_a3" = `ISO-alpha3 Code`)
+
+world <- ne_countries(scale = "small", returnclass = "sf")
+sf_use_s2(FALSE)
+world <- world |> 
+  st_make_valid() |> 
+  dplyr::select(iso_a3_eh)
+
+
+filter_start <- 2010
+
+crop_production <- crop_production |> 
+  filter(item %in% c("Rape or colza seed", "Oil palm fruit", "Soya beans", "Sunflower seed", "Groundnuts, excluding shelled"),
+         element == "area_harvested") |> 
+  mutate(element = paste(element, unit, sep = "_")) %>% 
+  dplyr::select(area_code__m49_, item, year, element, value) |> 
+  filter(year >= filter_start) |> 
+  group_by(area_code__m49_, item, element) |>
+    summarise(value = mean(value, na.rm = TRUE)) |> 
+  ungroup() |> 
+  mutate(area_code__m49_ = str_remove(area_code__m49_, "'")) |> 
+  left_join(country_lookup, by = "area_code__m49_") |> 
+  rename("iso_a3_eh" = iso_a3)
+
+```
+
+```{r generate_land_cover_polygon}
+
+lc <- landcover(var = "cropland", path = "data")
+crop <- lc
+crop_agg <- aggregate(crop, fact = 50, fun = mean, na.rm = TRUE)
+crop_mask <- ifel(crop_agg > 0.05, 1, NA)
+crop_poly <- as.polygons(crop_mask, dissolve = TRUE, na.rm = TRUE)
+crop_poly <- crop_poly |> 
+  project("EPSG:4326") |>        # ensure lon/lat
+  makeValid()
+crop_poly <- simplifyGeom(crop_poly, tolerance = 0.2)
+crop_sf <- st_as_sf(crop_poly)
+
+```
+
+```{r transform, warning=FALSE, message=FALSE}
+
+world_noislands <- world |> 
+ mutate("area" = st_area(geometry)) |>
+  filter(as.numeric(area) > 1.246059e+10) |> 
+  dplyr::select(-area)# remove small islands for better visibility
+  
+# st_transform(world, 25832
+world_shape <- world |> 
+  st_intersection(crop_sf)
+dot_multiplier <- 0.000002  # 1 dot represents 500,000 ha (pick what looks right)
+
+
+rapeseed_dat <- world_shape |> 
+  left_join(crop_production) |> 
+  filter(item == "Rape or colza seed") |> 
+  mutate(n_dots = round(value * dot_multiplier))  |> 
+  filter(n_dots > 0) |> 
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "regular", exact = TRUE)))  |> 
+  select(iso_a3_eh, pts)  |>
+  `st_geometry<-`(NULL) |> 
+  unnest(pts) |> 
+  st_as_sf() |> 
+  st_geometry(value = pts) |> 
+  st_as_sf() |> 
+  mutate(crop = "Rapeseed")
+
+oilpalm_dat <- world_shape |> 
+  left_join(crop_production) |> 
+  filter(item == "Oil palm fruit") |> 
+  mutate(n_dots = round(value * dot_multiplier))  |> 
+  filter(n_dots > 0) |> 
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "regular", exact = TRUE)))  |> 
+  select(iso_a3_eh, pts)  |>
+  `st_geometry<-`(NULL) |> 
+  unnest(pts) |> 
+  st_as_sf() |> 
+  st_geometry(value = pts) |> 
+  st_as_sf() |> 
+  mutate(crop = "Oil palm")
+
+soya_dat <- world_shape |> 
+  left_join(crop_production) |> 
+  filter(item == "Soya beans") |> 
+  mutate(n_dots = round(value * dot_multiplier))  |> 
+  filter(n_dots > 0) |> 
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "regular", exact = TRUE)))  |> 
+  select(iso_a3_eh, pts)  |>
+  `st_geometry<-`(NULL) |> 
+  unnest(pts) |> 
+  st_as_sf() |> 
+  st_geometry(value = pts) |> 
+  st_as_sf() |> 
+  mutate(crop = "Soya")
+
+groundnut_dat <- world_shape |> 
+  left_join(crop_production) |> 
+  filter(item == "Groundnuts, excluding shelled") |> 
+  mutate(n_dots = round(value * dot_multiplier))  |> 
+  filter(n_dots > 0) |> 
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "regular", exact = TRUE)))  |> 
+  select(iso_a3_eh, pts)  |>
+  `st_geometry<-`(NULL) |> 
+  unnest(pts) |> 
+  st_as_sf() |> 
+  st_geometry(value = pts) |> 
+  st_as_sf() |> 
+  mutate(crop = "Groundnut")
+
+sunflower_dat <- world_shape |> 
+  left_join(crop_production) |> 
+  filter(item == "Sunflower seed") |> 
+  mutate(n_dots = round(value * dot_multiplier))  |> 
+  filter(n_dots > 0) |> 
+  mutate(pts = map2(geometry, n_dots, ~ st_sample(.x, size = .y, type = "regular", exact = TRUE)))  |> 
+  select(iso_a3_eh, pts)  |>
+  `st_geometry<-`(NULL) |> 
+  unnest(pts) |> 
+  st_as_sf() |> 
+  st_geometry(value = pts) |> 
+  st_as_sf() |> 
+  mutate(crop = "Sunflower")
+
+
+illu_dots <- bind_rows(rapeseed_dat, oilpalm_dat, soya_dat, groundnut_dat, sunflower_dat) |> 
+  mutate(crop = fct_relevel(crop, "Rapeseed", "Sunflower", "Soya"))
+illu_dots <- illu_dots |> 
+  st_set_crs(value = st_crs(world_shape))
+
+illu_dots <- illu_dots[sample(nrow(illu_dots)), ]  # Shuffle rows to avoid clustering by crop type
+
+
+```
+
+```{r worldmap, warning=FALSE, message=FALSE}
+
+coastline <- rnaturalearth::ne_coastline(scale = "medium", returnclass = "sf") |> 
+  mutate("area" = st_length(geometry)) |> 
+  filter(as.numeric(area) > 1.246059e+10) 
+
+sphere <- st_graticule(ndiscr = 10000, margin = 10e-6) %>%
+  st_transform(crs = "+proj=eqearth") %>%
+  st_union() |> 
+  st_convex_hull() 
+
+
+plot_1 <- ggplot() +
+  theme_map() +
+  theme(legend.position = c(0.11, 0.182),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        panel.background = element_blank(),
+        panel.grid = element_line(colour = "black", linewidth = 0),
+        plot.title = element_text(hjust = 0, vjust = -3, size = 14, family = "Avenir Next Condensed Demi Bold"),
+        plot.subtitle = element_text(hjust = 0, vjust = -3, size = 12, family = "Avenir Next Condensed")) +
+  geom_sf(data = sphere, fill = "slategray1", colour = "black", alpha = 0.8, linewidth = 0) +
+  geom_sf(data = world_noislands, fill = "oldlace", colour = "grey50", linewidth = 0.04) +
+  geom_sf(data = crop_sf, fill = "black", color = "transparent", alpha = 0.06) +
+  geom_sf(data = world_noislands, fill = "transparent", colour = "grey50", linewidth = 0.04) +
+  # geom_sf(data = coastline, fill = "transparent", colour = "black", linewidth = 0.5) +
+  geom_sf(data = illu_dots, shape = 21, stroke = 0.4, size = 1.2, aes(fill = crop), colour = "oldlace", alpha = 1) +
+  annotate(geom = "text", x = -17243960, y = -8392928, hjust = -0.6, vjust = -2.5, size = 3.9, label = "Crop colours correspond to the panels below.", family = "Avenir Next Condensed", colour = "grey50") +
+  # scale_fill_brewer(palette = "Dark2") +
+  scale_fill_paletteer_d("ltc::minou") +
+    coord_sf(crs = "+proj=eqearth") +
+  guides(fill = FALSE) +
+  labs(fill = "",
+       title = "Oilcrops Production",
+                  subtitle = "Every dot represents 500,000 ha.") +
+  NULL
+
+
+
+plot_2 <- ggplot() +
+  theme_void() +
+  theme(legend.position = c(0.11, 0.182),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        panel.background = element_blank(),
+        panel.grid = element_line(colour = "black", linewidth = 0),
+        plot.title = element_text(hjust = 0.5, vjust = -3, size = 12, family = "bold"),
+        plot.margin = margin(t = -5, "lines"),
+        strip.text = element_text(family = "Avenir Next Condensed"),
+        panel.spacing.x = unit(-0.5, "lines")) +
+  facet_wrap(~crop, nrow = 1) +
+  geom_sf(data = sphere, fill = "slategray1", colour = "black", alpha = 0.8, linewidth = 0) +
+  geom_sf(data = world_noislands, fill = "oldlace", colour = "grey40", linewidth = 0) +
+  # geom_sf(data = crop_sf, fill = "black", color = "transparent", alpha = 0.06) +
+  geom_sf(data = world_noislands, fill = "transparent", colour = "grey40", linewidth = 0.01) +
+  # geom_sf(data = coastline, fill = "transparent", colour = "black", linewidth = 0.5) +
+  geom_sf(data = illu_dots, shape = 21, stroke = 0.4, size = 1.1, aes(fill = crop), colour = "oldlace", alpha = 1) +
+  # scale_fill_brewer(palette = "Dark2") +
+  scale_fill_paletteer_d("ltc::minou") +
+    coord_sf(crs = "+proj=eqearth") +
+  labs(fill = "",
+       caption = "",
+       title = "") +
+  guides(fill = FALSE) +
+  NULL
+
+
+plot_complete <- plot_1 + plot_spacer() + plot_2 +
+  plot_layout(height = c(2.5, -0.25, 0.5)) +
+  plot_annotation(
+    # title = "Oilcrops Production",
+                  # subtitle = "Every dot represents 500,000 ha",
+  caption = "Mean area of the harvest seasons 2010 to 2023. Regional distribution is based on statistics on country level.
+  Countrys are cropped to areas with substantial crop production for distribution of harvested area.
+       Data source: FAOSTAT Statistical Database. Food and Agriculture Organization of the United Nations, Rome") &
+  theme(plot.title = element_text(hjust = 0.5, vjust = -3, size = 14, family = "Avenir Next Condensed Demi Bold"),
+        plot.subtitle = element_text(hjust = 0.5, vjust = -3, size = 12, family = "Avenir Next Condensed", colour = "grey40"),
+        plot.caption = element_text(family = "Avenir Next Condensed", colour = "grey40"),
+        legend.text = element_text(family = "Avenir Next Condensed Medium", size = 8),
+        legend.title = element_text(family = "Avenir Next Condensed Demi Bold", size = 10),
+        text = element_text(family = "Avenir Next Condensed Regular"))
+
+plot_knit(plot_complete, aspect = 0.7, bg = "white")
+
+
+```
